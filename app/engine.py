@@ -5,6 +5,12 @@ from string import punctuation
 import math
 from gensim.summarization.summarizer import summarize
 from rake_nltk import Rake
+from nltk.corpus import stopwords
+from nltk.cluster.util import cosine_distance
+import numpy as np
+import networkx as nx
+import sys
+
 nltk.download('stopwords')
 
 text = ""
@@ -13,6 +19,7 @@ result = ""
 essay_str = ""
 keywords_str = ""
 summarize_str = ""
+ml_str = ""
 
 def get_text(text_name):
     global text
@@ -66,17 +73,21 @@ def print_result():
     global essay_str
     global keywords_str
     global summarize_str
+    global ml_str
     result = ""
 
-    result += "========= Эссе по тексту: =========\n"
+    result += "========= ESSAY ON TEXT: =========\n"
     essay_str = get_essay(text)
     result += essay_str
-    result += "\n\n========= Подведение итогов: =========\n"
+    result += "\n\n========= SUMMARIZE: =========\n"
     summarize_str = summarize(text)
     result += summarize_str
-    result += "\n\n========= Ключевые слова: =========\n"
+    result += "\n\n========= KEY WORDS: =========\n"
     keywords_str = extract_keywords_from(text)
     result += keywords_str
+    result += "\n\n========= MLMethod: =========\n"
+    ml_str = summarize_ml(text)
+    result += ml_str
 
 def save_result():
     file = open('result.txt', 'w', encoding="utf8")
@@ -87,4 +98,55 @@ def run_logic(file_name):
     get_text(file_name)
     print_result()
     save_result()
-    return essay_str, summarize_str, keywords_str
+    return essay_str, summarize_str, keywords_str, ml_str
+
+def sentence_similarity_ml(sent1, sent2):
+    sent1 = [w.lower() for w in sent1]
+    sent2 = [w.lower() for w in sent2]
+    all_words = list(set(sent1+sent2))
+    vector1 = [0] * len(all_words)
+    vector2 = [0] * len(all_words)
+
+    for w in sent1:
+        if (w in stopwords.words('german')) or (w in stopwords.words('russian')):
+            continue
+        vector1[all_words.index(w)] += 1
+
+    for w in sent2:
+        if (w in stopwords.words('german')) or (w in stopwords.words('russian')):
+            continue
+        vector2[all_words.index(w)] += 1
+
+    return 1 - cosine_distance(vector1, vector2)
+
+
+def getSimilarityMatrix_ml(sentences):
+    similarity_matrix = np.zeros((len(sentences), len(sentences)))
+
+    for idx1 in range(len(sentences)):
+        for idx2 in range(len(sentences)):
+            if idx1 == idx2:
+                continue
+            similarity_matrix[idx1][idx2] = sentence_similarity_ml(
+                sentences[idx1], sentences[idx2])
+    return similarity_matrix
+
+
+def summarize_ml(text):
+    summarize = []
+
+    data = "".join(text).replace("\n", "")
+    article = data.split(". ")
+    sentences = []
+    for sentence in article:
+        sentences.append(sentence.replace("[^a-zA-Z]", " ").split(" "))
+
+    similarityMatrix = getSimilarityMatrix_ml(sentences)
+    similarityGraph = nx.from_numpy_array(similarityMatrix)
+    scores = nx.pagerank(similarityGraph)
+    rankedSentences = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
+
+    for i in range(3):
+        summarize.append(" ".join(rankedSentences[i][1]))
+
+    return "" + "\n".join(summarize) + "."
